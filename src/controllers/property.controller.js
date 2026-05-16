@@ -23,6 +23,34 @@ const parseImageUrls = (value) => {
  * Amenities may arrive as JSON array string, repeated form fields (array),
  * or a single value like "gym" — never JSON.parse a bare token.
  */
+function getMulterImageFiles(files) {
+  if (!files) return [];
+  if (Array.isArray(files)) return files;
+  return files.images || [];
+}
+
+function getMulterPdfFile(files) {
+  if (!files || Array.isArray(files)) return null;
+  return files.documentPdf?.[0] || null;
+}
+
+async function uploadPropertyDocumentPdf(file) {
+  if (!file) return null;
+
+  const result = await uploadToCloudinary(file.path, "properties/documents", {
+    resourceType: "raw",
+  });
+
+  if (!result?.secure_url) {
+    return null;
+  }
+
+  return {
+    url: result.secure_url,
+    fileName: file.originalname || "property-brochure.pdf",
+  };
+}
+
 const parseAmenities = (amenities) => {
   if (amenities == null || amenities === "") return [];
   if (Array.isArray(amenities)) {
@@ -203,21 +231,46 @@ export const createProperty = async (req, res) => {
 
     // Handle image uploads
     let images = [];
-    if (req.files && req.files.length > 0) {
+    const imageFiles = getMulterImageFiles(req.files);
+    if (imageFiles.length > 0) {
       try {
-        const uploadPromises = req.files.map((file) =>
+        const uploadPromises = imageFiles.map((file) =>
           uploadToCloudinary(file.path, "properties"),
         );
         const uploadResults = await Promise.all(uploadPromises);
-        images = uploadResults.map((result, index) => ({
-          url: result.secure_url,
-          isCover: index === 0, // First image is cover
-        }));
+        images = uploadResults
+          .filter((result) => result?.secure_url)
+          .map((result, index) => ({
+            url: result.secure_url,
+            isCover: index === 0,
+          }));
       } catch (uploadError) {
         console.error("Image upload error:", uploadError);
         return res.status(500).json({
           success: false,
           message: "Failed to upload images",
+          error: uploadError.message || uploadError,
+        });
+      }
+    }
+
+    let documentPdf = { url: "", fileName: "" };
+    const pdfFile = getMulterPdfFile(req.files);
+    if (pdfFile) {
+      try {
+        const uploadedPdf = await uploadPropertyDocumentPdf(pdfFile);
+        if (!uploadedPdf) {
+          return res.status(500).json({
+            success: false,
+            message: "Failed to upload property PDF. Check Cloudinary configuration.",
+          });
+        }
+        documentPdf = uploadedPdf;
+      } catch (uploadError) {
+        console.error("Property PDF upload error:", uploadError);
+        return res.status(500).json({
+          success: false,
+          message: "Failed to upload property PDF",
           error: uploadError.message || uploadError,
         });
       }
@@ -256,6 +309,7 @@ export const createProperty = async (req, res) => {
       bathrooms: bathrooms ? parseInt(bathrooms) : 0,
       amenities: parsedAmenities,
       images,
+      documentPdf,
       location,
       phone,
       whatsAppNumber,
@@ -402,16 +456,19 @@ export const updateProperty = async (req, res) => {
     }
 
     // Handle image uploads if new images are provided
-    if (req.files && req.files.length > 0) {
+    const imageFiles = getMulterImageFiles(req.files);
+    if (imageFiles.length > 0) {
       try {
-        const uploadPromises = req.files.map((file) =>
+        const uploadPromises = imageFiles.map((file) =>
           uploadToCloudinary(file.path, "properties"),
         );
         const uploadResults = await Promise.all(uploadPromises);
-        const newImages = uploadResults.map((result, index) => ({
-          url: result.secure_url,
-          isCover: index === 0 && property.images.length === 0,
-        }));
+        const newImages = uploadResults
+          .filter((result) => result?.secure_url)
+          .map((result, index) => ({
+            url: result.secure_url,
+            isCover: index === 0 && property.images.length === 0,
+          }));
         req.body.images = [...property.images, ...newImages];
       } catch (uploadError) {
         console.error("Image upload error:", uploadError);
@@ -422,6 +479,33 @@ export const updateProperty = async (req, res) => {
         });
       }
     }
+
+    if (req.body.removeDocumentPdf === "true") {
+      req.body.documentPdf = { url: "", fileName: "" };
+    }
+
+    const pdfFile = getMulterPdfFile(req.files);
+    if (pdfFile) {
+      try {
+        const uploadedPdf = await uploadPropertyDocumentPdf(pdfFile);
+        if (!uploadedPdf) {
+          return res.status(500).json({
+            success: false,
+            message: "Failed to upload property PDF. Check Cloudinary configuration.",
+          });
+        }
+        req.body.documentPdf = uploadedPdf;
+      } catch (uploadError) {
+        console.error("Property PDF upload error:", uploadError);
+        return res.status(500).json({
+          success: false,
+          message: "Failed to upload property PDF",
+          error: uploadError.message || uploadError,
+        });
+      }
+    }
+
+    delete req.body.removeDocumentPdf;
 
     // Handle direct image URLs append
     if (req.body.imageUrls) {

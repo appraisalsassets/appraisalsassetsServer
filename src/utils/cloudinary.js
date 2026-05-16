@@ -10,6 +10,7 @@ cloudinary.config({
 export const uploadToCloudinary = async (
   localFilePath,
   folder = "properties",
+  options = {},
 ) => {
   try {
     // Check if Cloudinary is configured
@@ -26,9 +27,11 @@ export const uploadToCloudinary = async (
 
     if (!localFilePath) return null;
 
+    const resourceType = options.resourceType || "auto";
+
     // Upload on cloudinary
     const response = await cloudinary.uploader.upload(localFilePath, {
-      resource_type: "auto",
+      resource_type: resourceType,
       folder: folder,
     });
 

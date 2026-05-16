@@ -18,6 +18,31 @@ const storage = multer.diskStorage({
   },
 });
 
+const fileFilter = (req, file, cb) => {
+  if (file.fieldname === "documentPdf") {
+    if (file.mimetype === "application/pdf") {
+      return cb(null, true);
+    }
+    return cb(new Error("Property document must be a PDF file"), false);
+  }
+
+  if (file.fieldname === "images") {
+    if (file.mimetype.startsWith("image/")) {
+      return cb(null, true);
+    }
+    return cb(new Error("Property images must be image files"), false);
+  }
+
+  return cb(null, true);
+};
+
 export const upload = multer({
   storage,
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter,
 });
+
+export const propertyUpload = upload.fields([
+  { name: "images", maxCount: 20 },
+  { name: "documentPdf", maxCount: 1 },
+]);
