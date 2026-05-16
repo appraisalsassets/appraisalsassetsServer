@@ -1,5 +1,7 @@
 import dotenv from "dotenv";
 import mongoose from "mongoose";
+import path from "path";
+import { fileURLToPath } from "url";
 import Admin from "../models/Admin.js";
 import { hashPassword } from "../utils/hash.js";
 import { generateOtp } from "../utils/generateOtp.js";
@@ -54,6 +56,7 @@ export const createAdminIfNotExists = async () => {
           isActive: true,
         },
       );
+      console.log(`✅ Admin updated: ${process.env.ADMIN_EMAIL}`);
       return;
     }
 
@@ -70,13 +73,18 @@ export const createAdminIfNotExists = async () => {
       accessLevel: "full",
       isActive: true,
     });
+    console.log(`✅ Admin created: ${process.env.ADMIN_EMAIL}`);
   } catch (error) {
     console.error("❌ Error creating/updating admin:", error.message);
   }
 };
 
+const isDirectRun =
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
 // Handle command line arguments - only run script if called directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectRun) {
   const args = process.argv.slice(2);
   const forceCreate = args.includes("--force") || args.includes("-f");
 
