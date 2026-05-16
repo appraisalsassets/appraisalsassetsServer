@@ -6,6 +6,7 @@ import { upload } from "../middlewares/multer.middleware.js";
 const router = express.Router();
 
 router.get("/", developer.getDevelopers);
+router.get("/trusted-partners", developer.getTrustedPartners);
 router.get(
   "/admin/all",
   adminAuth,
