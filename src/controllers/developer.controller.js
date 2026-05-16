@@ -125,6 +125,13 @@ export const createDeveloper = async (req, res) => {
     }
 
     const slug = toSlug(name);
+    if (!slug) {
+      return res.status(400).json({
+        success: false,
+        message: "Please enter a valid developer name",
+      });
+    }
+
     const exists = await Developer.findOne({ slug });
     if (exists) {
       return res.status(409).json({
@@ -136,12 +143,23 @@ export const createDeveloper = async (req, res) => {
     let logo = "";
     let heroImage = "";
     if (req.files?.logo?.[0]) {
-      const uploaded = await uploadToCloudinary(req.files.logo[0].path, "developers");
-      logo = uploaded?.secure_url || "";
+      try {
+        const uploaded = await uploadToCloudinary(req.files.logo[0].path, "developers");
+        logo = uploaded?.secure_url || "";
+      } catch (uploadError) {
+        console.error("Developer logo upload error:", uploadError);
+      }
     }
     if (req.files?.heroImage?.[0]) {
-      const uploaded = await uploadToCloudinary(req.files.heroImage[0].path, "developers");
-      heroImage = uploaded?.secure_url || "";
+      try {
+        const uploaded = await uploadToCloudinary(
+          req.files.heroImage[0].path,
+          "developers",
+        );
+        heroImage = uploaded?.secure_url || "";
+      } catch (uploadError) {
+        console.error("Developer hero image upload error:", uploadError);
+      }
     }
 
     const developer = await Developer.create({
@@ -195,12 +213,23 @@ export const updateDeveloper = async (req, res) => {
     if (communities !== undefined) developer.communities = parseCommunities(communities);
 
     if (req.files?.logo?.[0]) {
-      const uploaded = await uploadToCloudinary(req.files.logo[0].path, "developers");
-      developer.logo = uploaded?.secure_url || developer.logo;
+      try {
+        const uploaded = await uploadToCloudinary(req.files.logo[0].path, "developers");
+        developer.logo = uploaded?.secure_url || developer.logo;
+      } catch (uploadError) {
+        console.error("Developer logo upload error:", uploadError);
+      }
     }
     if (req.files?.heroImage?.[0]) {
-      const uploaded = await uploadToCloudinary(req.files.heroImage[0].path, "developers");
-      developer.heroImage = uploaded?.secure_url || developer.heroImage;
+      try {
+        const uploaded = await uploadToCloudinary(
+          req.files.heroImage[0].path,
+          "developers",
+        );
+        developer.heroImage = uploaded?.secure_url || developer.heroImage;
+      } catch (uploadError) {
+        console.error("Developer hero image upload error:", uploadError);
+      }
     }
 
     await developer.save();
