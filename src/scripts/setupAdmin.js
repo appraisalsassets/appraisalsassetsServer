@@ -35,9 +35,11 @@ export const createAdminIfNotExists = async () => {
       return;
     }
 
+    const adminEmail = process.env.ADMIN_EMAIL.toLowerCase().trim();
+
     // Check if admin already exists
     const existingAdmin = await Admin.findOne({
-      email: process.env.ADMIN_EMAIL,
+      email: adminEmail,
     });
 
     if (existingAdmin) {
@@ -46,7 +48,7 @@ export const createAdminIfNotExists = async () => {
 
       // Update existing admin with new credentials
       await Admin.updateOne(
-        { email: process.env.ADMIN_EMAIL },
+        { email: adminEmail },
         {
           name: process.env.ADMIN_NAME || "System Administrator",
           password: hashedPassword,
@@ -56,7 +58,7 @@ export const createAdminIfNotExists = async () => {
           isActive: true,
         },
       );
-      console.log(`✅ Admin updated: ${process.env.ADMIN_EMAIL}`);
+      console.log(`✅ Admin updated: ${adminEmail}`);
       return;
     }
 
@@ -66,14 +68,14 @@ export const createAdminIfNotExists = async () => {
     // Create admin with email verified (skip OTP for initial setup)
     await Admin.create({
       name: process.env.ADMIN_NAME || "System Administrator",
-      email: process.env.ADMIN_EMAIL,
+      email: adminEmail,
       password: hashedPassword,
       isEmailVerified: true, // Auto-verify for initial admin
       authProvider: "local",
       accessLevel: "full",
       isActive: true,
     });
-    console.log(`✅ Admin created: ${process.env.ADMIN_EMAIL}`);
+    console.log(`✅ Admin created: ${adminEmail}`);
   } catch (error) {
     console.error("❌ Error creating/updating admin:", error.message);
   }

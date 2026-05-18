@@ -17,7 +17,7 @@ import subscriberRoutes from "./src/routes/subscriber.routes.js";
 import developerRoutes from "./src/routes/developer.routes.js";
 import settingsRoutes from "./src/routes/settings.routes.js";
 import connectDB from "./src/config/db.js";
-
+import mongoose from "mongoose";
 
 const app = express();
 
@@ -55,6 +55,22 @@ app.use(passport.initialize());
 
 // Routes
 app.get("/", (req, res) => res.status(200).json({ success: true, message: "API is working" }));
+
+app.get("/api/health", (req, res) => {
+  const states = ["disconnected", "connected", "connecting", "disconnecting"];
+  const readyState = mongoose.connection.readyState;
+  res.status(readyState === 1 ? 200 : 503).json({
+    success: readyState === 1,
+    database: states[readyState] || "unknown",
+    hasMongoUri: Boolean(process.env.MONGO_URI),
+    hasJwtSecrets: Boolean(
+      process.env.JWT_ACCESS_SECRET && process.env.JWT_REFRESH_SECRET,
+    ),
+    hasAdminCredentials: Boolean(
+      process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD,
+    ),
+  });
+});
 app.use("/api/auth", authRoutes);
 app.use("/api/properties", propertyRoutes);
 app.use("/api/dashboard", dashboardRoutes);

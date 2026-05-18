@@ -107,6 +107,17 @@ export const login = async (req, res) => {
     });
   } catch (error) {
     console.error("LOGIN ERROR:", error);
+    if (
+      error.name === "MongoServerSelectionError" ||
+      error.name === "MongooseServerSelectionError" ||
+      error.message?.includes("buffering timed out")
+    ) {
+      return res.status(503).json({
+        success: false,
+        message:
+          "Database unavailable. Check MONGO_URI on the server and MongoDB Atlas network access.",
+      });
+    }
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
