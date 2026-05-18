@@ -4,8 +4,8 @@ export default async function handler(req, res) {
   const cleanOrigin = origin.replace(/\/$/, "");
 
   const allowedOrigins = [
-    "https://appraisalsassets-client-g2nn.vercel.app",
-    "https://appraisalsassets-client-delta.vercel.app",
+    "https://appraisalsassets-client-g2nn-p31kdjqom.vercel.app",
+    "https://appraisalsassets-client-delta-v2-s14b9q8i4.vercel.app",
     "https://www.assetsappraisals.com",
     "https://assetsappraisals.com",
     "http://localhost:3000",
