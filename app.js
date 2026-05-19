@@ -15,6 +15,7 @@ import blogRoutes from "./src/routes/blog.routes.js";
 import contentRoutes from "./src/routes/content.routes.js";
 import subscriberRoutes from "./src/routes/subscriber.routes.js";
 import developerRoutes from "./src/routes/developer.routes.js";
+import trustedPartnerRoutes from "./src/routes/trustedPartner.routes.js";
 import settingsRoutes from "./src/routes/settings.routes.js";
 import connectDB from "./src/config/db.js";
 import mongoose from "mongoose";
@@ -80,6 +81,7 @@ app.use("/api/blog", blogRoutes);
 app.use("/api/content", contentRoutes);
 app.use("/api/subscribers", subscriberRoutes);
 app.use("/api/developers", developerRoutes);
+app.use("/api/trusted-partners", trustedPartnerRoutes);
 app.use("/api/settings", settingsRoutes);
 
 // Error Handler
@@ -95,9 +97,14 @@ app.use((err, req, res, next) => {
 const __filename = fileURLToPath(import.meta.url);
 if (process.argv[1] === __filename) {
   const PORT = process.env.PORT || 4001;
-  connectDB().then(() => 
-    app.listen(PORT, () => console.log(`Server running on port ${PORT}`))
-  );
+  connectDB()
+    .then(() =>
+      app.listen(PORT, () => console.log(`Server running on port ${PORT}`)),
+    )
+    .catch((error) => {
+      console.error("Failed to start server:", error.message);
+      process.exit(1);
+    });
 }
 
 export default app;

@@ -36,36 +36,6 @@ async function withPropertyCounts(developers) {
   return Array.isArray(developers) ? enriched : enriched[0];
 }
 
-export const getTrustedPartners = async (req, res) => {
-  try {
-    const developers = await Developer.find({ isActive: true })
-      .select("name slug logo displayOrder")
-      .sort({ displayOrder: 1, name: 1 });
-
-    const partners = developers
-      .filter((developer) => developer.logo && String(developer.logo).trim().length > 0)
-      .map((developer) => ({
-        id: developer._id.toHexString(),
-        name: developer.name,
-        slug: developer.slug,
-        logo: String(developer.logo).trim(),
-        displayOrder: developer.displayOrder ?? 0,
-      }));
-
-    return res.status(200).json({
-      success: true,
-      message: "Trusted partners fetched successfully",
-      partners,
-    });
-  } catch (error) {
-    console.error("Get trusted partners error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
-  }
-};
-
 export const getDevelopers = async (req, res) => {
   try {
     const { search = "" } = req.query;

@@ -432,7 +432,7 @@ export const getProperties = async (req, res) => {
   try {
     const {
       page = 1,
-      limit = 10,
+      limit = 100,
       category,
       status,
       location,
@@ -458,6 +458,12 @@ export const getProperties = async (req, res) => {
     }
 
     console.log("Built filter:", filter);
+    console.log(
+      "MongoDB:",
+      Property.db?.name || "unknown",
+      "properties in DB:",
+      await Property.countDocuments({}),
+    );
 
     const properties = await Property.find(filter)
       .skip(skip)

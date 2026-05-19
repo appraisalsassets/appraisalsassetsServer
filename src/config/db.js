@@ -1,12 +1,6 @@
 import mongoose from "mongoose";
 
-/** On Windows, localhost (::1) and 127.0.0.1 can hit different MongoDB instances. */
-function normalizeMongoUri(uri) {
-  if (!uri) return uri;
-  return uri.replace(/^mongodb:\/\/localhost\b/i, "mongodb://127.0.0.1");
-}
-
-const MONGO_URI = normalizeMongoUri(process.env.MONGO_URI);
+const MONGO_URI = process.env.MONGO_URI;
 
 /** Reuse connection across Vercel serverless invocations */
 const globalCache = globalThis;
