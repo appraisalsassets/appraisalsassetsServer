@@ -5,11 +5,29 @@ import { propertyUpload } from "../middlewares/multer.middleware.js";
 
 const router = express.Router();
 
+function handlePropertyUpload(req, res, next) {
+  propertyUpload(req, res, (err) => {
+    if (!err) return next();
+
+    if (err.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({
+        success: false,
+        message: "File too large. Each image or PDF must be under 15MB.",
+      });
+    }
+
+    return res.status(400).json({
+      success: false,
+      message: err.message || "File upload failed",
+    });
+  });
+}
+
 router.post(
   "/",
   adminAuth,
   requirePermission("properties"),
-  propertyUpload,
+  handlePropertyUpload,
   property.createProperty,
 );
 
@@ -23,7 +41,7 @@ router.put(
   "/:id",
   adminAuth,
   requirePermission("properties"),
-  propertyUpload,
+  handlePropertyUpload,
   property.updateProperty,
 );
 

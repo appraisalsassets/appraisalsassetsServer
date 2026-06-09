@@ -88,10 +88,17 @@ app.use("/api/settings", settingsRoutes);
 
 // Error Handler
 app.use((err, req, res, next) => {
+  if (err?.code === "LIMIT_FILE_SIZE") {
+    return res.status(413).json({
+      success: false,
+      message: "File too large. Each image or PDF must be under 15MB.",
+    });
+  }
+
   const statusCode = err.statusCode || 500;
-  res.status(statusCode).json({ 
-    success: false, 
-    message: err.message || "Internal Server Error" 
+  res.status(statusCode).json({
+    success: false,
+    message: err.message || "Internal Server Error",
   });
 });
 
