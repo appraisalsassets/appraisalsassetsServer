@@ -33,15 +33,82 @@ export function buildPdfPublicId(originalname) {
   return `${Date.now()}_${name}`;
 }
 
-export async function verifyCloudinaryRawDelivery(url) {
-  const deliveryUrl = getCloudinaryPdfDeliveryUrl(url);
-  if (!deliveryUrl) return false;
-  const response = await fetch(deliveryUrl, { method: "HEAD" });
-  if (response.status === 405) {
-    const getResponse = await fetch(deliveryUrl);
-    return getResponse.ok;
+function isPdfBuffer(buffer) {
+  return (
+    Buffer.isBuffer(buffer) &&
+    buffer.length >= 4 &&
+    buffer.subarray(0, 4).toString("utf8") === "%PDF"
+  );
+}
+
+/** Legacy uploads used public_ids ending in ".pdf"; newer uploads omit the extension. */
+function rawPublicIdCandidates(publicId) {
+  const trimmed = String(publicId || "").trim();
+  if (!trimmed) return [];
+
+  const candidates = [trimmed];
+  if (/\.pdf$/i.test(trimmed)) {
+    candidates.push(trimmed.replace(/\.pdf$/i, ""));
+  } else {
+    candidates.push(`${trimmed}.pdf`);
   }
-  return response.ok;
+
+  return [...new Set(candidates)];
+}
+
+async function fetchCloudinaryRawViaPrivateDownload(publicId) {
+  const candidates = rawPublicIdCandidates(publicId);
+  if (!candidates.length) {
+    throw new Error("Missing Cloudinary public_id");
+  }
+
+  let lastError = new Error("Cloudinary private download failed");
+
+  for (const id of candidates) {
+    try {
+      const downloadUrl = cloudinary.utils.private_download_url(id, "pdf", {
+        resource_type: "raw",
+        type: "upload",
+        attachment: true,
+      });
+
+      const response = await fetch(downloadUrl, {
+        headers: { Accept: "application/pdf,application/octet-stream,*/*" },
+      });
+      if (!response.ok) {
+        lastError = new Error(
+          `Cloudinary private download failed (${response.status})`,
+        );
+        continue;
+      }
+
+      const buffer = Buffer.from(await response.arrayBuffer());
+      if (!isPdfBuffer(buffer)) {
+        lastError = new Error("Downloaded brochure is not a valid PDF");
+        continue;
+      }
+
+      return buffer;
+    } catch (error) {
+      lastError =
+        error instanceof Error
+          ? error
+          : new Error("Cloudinary private download failed");
+    }
+  }
+
+  throw lastError;
+}
+
+/** Cloudinary blocks public delivery for many PDFs (401) — verify via signed Admin download. */
+export async function verifyCloudinaryPdfAccessible(publicId) {
+  if (!publicId?.trim() || !isCloudinaryConfigured()) return false;
+  try {
+    const buffer = await fetchCloudinaryRawViaPrivateDownload(publicId);
+    return isPdfBuffer(buffer);
+  } catch {
+    return false;
+  }
 }
 
 /** Strip broken fl_attachment segments; delivery filename is set by our API. */
@@ -62,70 +129,45 @@ export function parseCloudinaryRawAsset(url) {
   return { publicId: decodeURIComponent(match[1]) };
 }
 
-export function getSignedCloudinaryRawUrl(publicId, type = "upload") {
-  if (!publicId || !isCloudinaryConfigured()) return "";
-  return cloudinary.url(publicId, {
-    resource_type: "raw",
-    type,
-    sign_url: true,
-    secure: true,
+async function fetchCloudinaryRawViaPublicUrl(deliveryUrl) {
+  const response = await fetch(deliveryUrl, {
+    headers: { Accept: "application/pdf,application/octet-stream,*/*" },
   });
+  if (!response.ok) {
+    throw new Error(`Cloudinary fetch failed (${response.status})`);
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (!isPdfBuffer(buffer)) {
+    throw new Error("Downloaded brochure is not a valid PDF");
+  }
+  return buffer;
 }
 
-/** Fetch raw PDF bytes; retries with signed URLs when Cloudinary returns 401/403. */
+/** Fetch raw PDF bytes (uses Cloudinary signed Admin download when configured). */
 export async function fetchCloudinaryRawBuffer(url, publicIdOverride = "") {
   const deliveryUrl = getCloudinaryPdfDeliveryUrl(url);
+  const asset = parseCloudinaryRawAsset(deliveryUrl || url || "");
+  const publicId = (publicIdOverride || asset?.publicId || "").trim();
+
+  if (publicId && isCloudinaryConfigured()) {
+    try {
+      return await fetchCloudinaryRawViaPrivateDownload(publicId);
+    } catch (privateError) {
+      if (!deliveryUrl) throw privateError;
+      try {
+        return await fetchCloudinaryRawViaPublicUrl(deliveryUrl);
+      } catch {
+        throw privateError;
+      }
+    }
+  }
+
   if (!deliveryUrl) {
-    throw new Error("Missing Cloudinary URL");
+    throw new Error("Missing Cloudinary URL or public_id");
   }
 
-  const tryFetch = async (fetchUrl) => {
-    const response = await fetch(fetchUrl, {
-      headers: { Accept: "application/pdf,application/octet-stream,*/*" },
-    });
-    if (!response.ok) {
-      return { ok: false, status: response.status, response };
-    }
-    const buffer = Buffer.from(await response.arrayBuffer());
-    return { ok: true, buffer, status: response.status };
-  };
-
-  let result = await tryFetch(deliveryUrl);
-  if (result.ok) return result.buffer;
-
-  if (result.status !== 401 && result.status !== 403) {
-    throw new Error(`Cloudinary fetch failed (${result.status})`);
-  }
-
-  const asset = parseCloudinaryRawAsset(deliveryUrl);
-  const publicId = publicIdOverride || asset?.publicId;
-  if (!publicId) {
-    throw new Error("Could not parse Cloudinary asset for signed download");
-  }
-
-  for (const type of ["upload", "authenticated", "private"]) {
-    const signedUrl = getSignedCloudinaryRawUrl(publicId, type);
-    if (!signedUrl) continue;
-    result = await tryFetch(signedUrl);
-    if (result.ok) return result.buffer;
-  }
-
-  const expiresAt = Math.floor(Date.now() / 1000) + 3600;
-  try {
-    const privateUrl = cloudinary.utils.private_download_url(
-      publicId.replace(/\.pdf$/i, ""),
-      "pdf",
-      { resource_type: "raw", expires_at: expiresAt },
-    );
-    if (privateUrl) {
-      result = await tryFetch(privateUrl);
-      if (result.ok) return result.buffer;
-    }
-  } catch (error) {
-    console.error("Cloudinary private_download_url failed:", error.message);
-  }
-
-  throw new Error(`Cloudinary fetch failed (${result.status})`);
+  return fetchCloudinaryRawViaPublicUrl(deliveryUrl);
 }
 
 function buildUploadParams(folder, options = {}) {

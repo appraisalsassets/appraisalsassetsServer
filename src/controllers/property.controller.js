@@ -8,7 +8,7 @@ import {
   isCloudinaryConfigured,
   parseCloudinaryRawAsset,
   uploadMulterFile,
-  verifyCloudinaryRawDelivery,
+  verifyCloudinaryPdfAccessible,
 } from "../utils/cloudinary.js";
 import { v2 as cloudinary } from "cloudinary";
 
@@ -67,22 +67,23 @@ async function uploadPropertyDocumentPdf(file) {
     );
   }
 
-  const canDeliver = await verifyCloudinaryRawDelivery(url);
-  if (!canDeliver) {
-    const publicId = result.public_id
-      ? result.folder
-        ? `${result.folder}/${result.public_id}`
-        : result.public_id
-      : "";
-    if (publicId) {
+  const storedPublicId = result.public_id
+    ? result.folder
+      ? `${result.folder}/${result.public_id}`
+      : result.public_id
+    : parseCloudinaryRawAsset(url)?.publicId || "";
+
+  const canDownload = await verifyCloudinaryPdfAccessible(storedPublicId);
+  if (!canDownload) {
+    if (storedPublicId) {
       try {
-        await cloudinary.uploader.destroy(publicId, { resource_type: "raw" });
+        await cloudinary.uploader.destroy(storedPublicId, { resource_type: "raw" });
       } catch (destroyError) {
-        console.error("Failed to remove undeliverable PDF:", destroyError.message);
+        console.error("Failed to remove invalid PDF upload:", destroyError.message);
       }
     }
     throw new Error(
-      "PDF upload succeeded but delivery is blocked. Re-upload the brochure, or in Cloudinary go to Settings → Security and enable “Allow delivery of PDF and ZIP files”.",
+      "PDF upload failed validation. Please upload a valid PDF file and try again.",
     );
   }
 
@@ -92,11 +93,7 @@ async function uploadPropertyDocumentPdf(file) {
     url,
     fileName,
     downloadUrl: getCloudinaryPdfDeliveryUrl(url),
-    publicId: result.public_id
-      ? result.folder
-        ? `${result.folder}/${result.public_id}`
-        : result.public_id
-      : parsed?.publicId || "",
+    publicId: storedPublicId || parsed?.publicId || "",
   };
 }
 
@@ -532,12 +529,9 @@ export const downloadPropertyBrochure = async (req, res) => {
         : await fetchCloudinaryRawBuffer(sourceUrl);
     } catch (fetchError) {
       console.error("Brochure fetch failed:", fetchError.message, sourceUrl);
-      const needsReupload = sourceUrl.toLowerCase().includes(".pdf");
       return res.status(502).json({
         success: false,
-        message: needsReupload
-          ? "This brochure cannot be downloaded (Cloudinary blocked it). Edit the property in admin and upload the PDF again."
-          : "Failed to retrieve PDF from storage",
+        message: "Failed to retrieve PDF from storage. Try uploading the brochure again in admin.",
       });
     }
     const isPdf =
