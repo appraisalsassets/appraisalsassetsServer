@@ -16,6 +16,7 @@ import contentRoutes from "./src/routes/content.routes.js";
 import subscriberRoutes from "./src/routes/subscriber.routes.js";
 import developerRoutes from "./src/routes/developer.routes.js";
 import trustedPartnerRoutes from "./src/routes/trustedPartner.routes.js";
+import serviceRoutes from "./src/routes/service.routes.js";
 import settingsRoutes from "./src/routes/settings.routes.js";
 import connectDB from "./src/config/db.js";
 import mongoose from "mongoose";
@@ -82,6 +83,7 @@ app.use("/api/content", contentRoutes);
 app.use("/api/subscribers", subscriberRoutes);
 app.use("/api/developers", developerRoutes);
 app.use("/api/trusted-partners", trustedPartnerRoutes);
+app.use("/api/services", serviceRoutes);
 app.use("/api/settings", settingsRoutes);
 
 // Error Handler
