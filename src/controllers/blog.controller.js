@@ -1,5 +1,8 @@
 import BlogPost from "../models/BlogPost.js";
-import { uploadToCloudinary } from "../utils/cloudinary.js";
+import {
+  getCloudinaryAssetUrl,
+  uploadMulterFile,
+} from "../utils/cloudinary.js";
 
 function generateSlug(title) {
   return title
@@ -23,6 +26,47 @@ async function ensureUniqueSlug(slug, excludeId = null) {
   }
 }
 
+function isAdminRequest(req) {
+  const authHeader = req.headers.authorization;
+  return Boolean(authHeader && authHeader.startsWith("Bearer "));
+}
+
+function normalizeStatus(status) {
+  const value = String(status || "draft").trim().toLowerCase();
+  return value === "published" ? "published" : "draft";
+}
+
+function parseTags(tags) {
+  if (!tags) return [];
+  if (Array.isArray(tags)) {
+    return tags.map((t) => String(t).trim()).filter(Boolean);
+  }
+  return String(tags)
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+function parseBoolean(value, fallback = false) {
+  if (typeof value === "boolean") return value;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return fallback;
+}
+
+async function uploadFeaturedImage(file) {
+  if (!file) return "";
+  try {
+    const uploadResult = await uploadMulterFile(file, "blog", {
+      resourceType: "image",
+    });
+    return getCloudinaryAssetUrl(uploadResult);
+  } catch (uploadError) {
+    console.error("Image upload error:", uploadError);
+    return "";
+  }
+}
+
 // CREATE BLOG POST
 export const createBlogPost = async (req, res) => {
   try {
@@ -40,35 +84,21 @@ export const createBlogPost = async (req, res) => {
       slug && slug.trim() ? generateSlug(slug) : generateSlug(title),
     );
 
-    let imageUrl = "";
-    if (req.file) {
-      try {
-        const uploadResult = await uploadToCloudinary(req.file.path, "blog");
-        if (uploadResult && uploadResult.url) {
-          imageUrl = uploadResult.url;
-        }
-      } catch (uploadError) {
-        console.error("Image upload error:", uploadError);
-      }
-    }
-
-    let parsedTags = [];
-    if (tags) {
-      parsedTags = typeof tags === "string" ? tags.split(",").map((t) => t.trim()).filter(Boolean) : tags;
-    }
+    const imageUrl = await uploadFeaturedImage(req.file);
+    const normalizedStatus = normalizeStatus(status);
 
     const blogPost = new BlogPost({
-      title,
+      title: String(title).trim(),
       slug: finalSlug,
-      excerpt,
+      excerpt: String(excerpt).trim(),
       content,
       featuredImage: imageUrl,
       category: category || "dubai_real_estate_news",
-      tags: parsedTags,
-      status: status || "draft",
-      publishedAt: status === "published" ? new Date() : null,
-      isFeatured: isFeatured === "true" || isFeatured === true,
-      createdBy: req.admin.id,
+      tags: parseTags(tags),
+      status: normalizedStatus,
+      publishedAt: normalizedStatus === "published" ? new Date() : null,
+      isFeatured: parseBoolean(isFeatured),
+      createdBy: req.admin._id,
     });
 
     await blogPost.save();
@@ -103,8 +133,15 @@ export const getBlogPosts = async (req, res) => {
     } = req.query;
 
     const query = {};
+    const adminRequest = isAdminRequest(req);
 
-    if (status) query.status = status;
+    if (adminRequest) {
+      if (status) query.status = normalizeStatus(status);
+    } else {
+      query.status = "published";
+      query.isActive = true;
+    }
+
     if (category) query.category = category;
     if (featured !== undefined) query.isFeatured = featured === "true";
 
@@ -117,14 +154,18 @@ export const getBlogPosts = async (req, res) => {
     }
 
     const sortOptions = {};
-    sortOptions[sortBy] = sortOrder === "desc" ? -1 : 1;
+    const effectiveSortBy =
+      !adminRequest && sortBy === "createdAt" ? "publishedAt" : sortBy;
+    sortOptions[effectiveSortBy] = sortOrder === "desc" ? -1 : 1;
 
-    const skip = (Number(page) - 1) * Number(limit);
+    const pageNum = Math.max(1, Number(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, Number(limit) || 10));
+    const skip = (pageNum - 1) * limitNum;
 
     const blogPosts = await BlogPost.find(query)
       .sort(sortOptions)
       .skip(skip)
-      .limit(Number(limit))
+      .limit(limitNum)
       .populate("createdBy", "name email")
       .exec();
 
@@ -135,10 +176,10 @@ export const getBlogPosts = async (req, res) => {
       message: "Blog posts retrieved successfully",
       data: blogPosts,
       pagination: {
-        currentPage: Number(page),
-        totalPages: Math.ceil(total / Number(limit)),
+        currentPage: pageNum,
+        totalPages: Math.ceil(total / limitNum),
         totalItems: total,
-        itemsPerPage: Number(limit),
+        itemsPerPage: limitNum,
       },
     });
   } catch (error) {
@@ -155,6 +196,7 @@ export const getBlogPosts = async (req, res) => {
 export const getBlogPost = async (req, res) => {
   try {
     const { id } = req.params;
+    const adminRequest = isAdminRequest(req);
 
     const isObjectId = /^[0-9a-fA-F]{24}$/.test(id);
     const blogPost = isObjectId
@@ -162,6 +204,16 @@ export const getBlogPost = async (req, res) => {
       : await BlogPost.findOne({ slug: id }).populate("createdBy", "name email");
 
     if (!blogPost) {
+      return res.status(404).json({
+        success: false,
+        message: "Blog post not found",
+      });
+    }
+
+    if (
+      !adminRequest &&
+      (blogPost.status !== "published" || blogPost.isActive === false)
+    ) {
       return res.status(404).json({
         success: false,
         message: "Blog post not found",
@@ -187,41 +239,16 @@ export const getBlogPost = async (req, res) => {
 export const updateBlogPost = async (req, res) => {
   try {
     const { id } = req.params;
-    const updateData = { ...req.body };
-
-    delete updateData.createdBy;
-
-    if (updateData.slug && updateData.slug.trim()) {
-      updateData.slug = await ensureUniqueSlug(
-        generateSlug(updateData.slug),
-        id,
-      );
-    } else if (updateData.title) {
-      updateData.slug = await ensureUniqueSlug(
-        generateSlug(updateData.title),
-        id,
-      );
-    }
-
-    if (req.file) {
-      try {
-        const uploadResult = await uploadToCloudinary(req.file.path, "blog");
-        if (uploadResult && uploadResult.url) {
-          updateData.featuredImage = uploadResult.url;
-        }
-      } catch (uploadError) {
-        console.error("Image upload error:", uploadError);
-      }
-    }
-
-    if (updateData.tags && typeof updateData.tags === "string") {
-      updateData.tags = updateData.tags.split(",").map((t) => t.trim()).filter(Boolean);
-    }
-
-    if (updateData.isFeatured !== undefined) {
-      updateData.isFeatured =
-        updateData.isFeatured === "true" || updateData.isFeatured === true;
-    }
+    const {
+      title,
+      slug,
+      excerpt,
+      content,
+      category,
+      tags,
+      status,
+      isFeatured,
+    } = req.body;
 
     const existingPost = await BlogPost.findById(id);
     if (!existingPost) {
@@ -231,11 +258,43 @@ export const updateBlogPost = async (req, res) => {
       });
     }
 
-    if (
-      updateData.status === "published" &&
-      existingPost.status !== "published"
-    ) {
-      updateData.publishedAt = new Date();
+    const updateData = {};
+
+    if (title !== undefined) updateData.title = String(title).trim();
+    if (excerpt !== undefined) updateData.excerpt = String(excerpt).trim();
+    if (content !== undefined) updateData.content = content;
+    if (category !== undefined) updateData.category = category;
+
+    if (slug !== undefined && String(slug).trim()) {
+      updateData.slug = await ensureUniqueSlug(generateSlug(slug), id);
+    } else if (title !== undefined && String(title).trim()) {
+      updateData.slug = await ensureUniqueSlug(generateSlug(title), id);
+    }
+
+    if (tags !== undefined) {
+      updateData.tags = parseTags(tags);
+    }
+
+    if (isFeatured !== undefined) {
+      updateData.isFeatured = parseBoolean(isFeatured);
+    }
+
+    if (status !== undefined) {
+      const normalizedStatus = normalizeStatus(status);
+      updateData.status = normalizedStatus;
+      if (
+        normalizedStatus === "published" &&
+        existingPost.status !== "published"
+      ) {
+        updateData.publishedAt = new Date();
+      }
+    }
+
+    if (req.file) {
+      const imageUrl = await uploadFeaturedImage(req.file);
+      if (imageUrl) {
+        updateData.featuredImage = imageUrl;
+      }
     }
 
     const blogPost = await BlogPost.findByIdAndUpdate(id, updateData, {
@@ -292,16 +351,17 @@ export const toggleBlogPostStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
+    const normalizedStatus = normalizeStatus(status);
 
-    if (!["draft", "published"].includes(status)) {
+    if (!["draft", "published"].includes(normalizedStatus)) {
       return res.status(400).json({
         success: false,
         message: "Status must be 'draft' or 'published'",
       });
     }
 
-    const updateData = { status };
-    if (status === "published") {
+    const updateData = { status: normalizedStatus };
+    if (normalizedStatus === "published") {
       const existing = await BlogPost.findById(id);
       if (existing && !existing.publishedAt) {
         updateData.publishedAt = new Date();
@@ -321,7 +381,7 @@ export const toggleBlogPostStatus = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: `Blog post ${status === "published" ? "published" : "moved to draft"} successfully`,
+      message: `Blog post ${normalizedStatus === "published" ? "published" : "moved to draft"} successfully`,
       data: blogPost,
     });
   } catch (error) {
@@ -342,7 +402,7 @@ export const toggleFeatured = async (req, res) => {
 
     const blogPost = await BlogPost.findByIdAndUpdate(
       id,
-      { isFeatured },
+      { isFeatured: parseBoolean(isFeatured) },
       { new: true },
     );
 

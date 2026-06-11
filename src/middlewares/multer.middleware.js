@@ -77,3 +77,20 @@ export const serviceUpload = multer({
   limits: { fileSize: 15 * 1024 * 1024 },
   fileFilter: serviceImageFilter,
 }).single("heroImage");
+
+const blogImageFilter = (req, file, cb) => {
+  if (
+    file.fieldname === "featuredImage" &&
+    file.mimetype.startsWith("image/")
+  ) {
+    return cb(null, true);
+  }
+  return cb(new Error("Blog featured image must be an image file"), false);
+};
+
+/** Memory storage for blog featured images (Vercel/serverless safe). */
+export const blogUpload = multer({
+  storage: propertyStorage,
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: blogImageFilter,
+}).single("featuredImage");
