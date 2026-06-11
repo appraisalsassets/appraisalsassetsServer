@@ -108,6 +108,39 @@ function resolveBrochureFileName(property) {
   return `${slug || "property-brochure"}.pdf`;
 }
 
+const parseBooleanField = (value, fallback = false) => {
+  if (typeof value === "boolean") return value;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return fallback;
+};
+
+const parseNumberField = (value, fallback = 0) => {
+  if (value === "" || value == null) return fallback;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+};
+
+const parseExistingImages = (value) => {
+  if (!value) return null;
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    if (!Array.isArray(parsed)) return null;
+    return parsed
+      .map((img) =>
+        typeof img === "string"
+          ? { url: img, isCover: false }
+          : {
+              url: img?.url || "",
+              isCover: Boolean(img?.isCover),
+            },
+      )
+      .filter((img) => img.url);
+  } catch {
+    return null;
+  }
+};
+
 const parseAmenities = (amenities) => {
   if (amenities == null || amenities === "") return [];
   if (Array.isArray(amenities)) {
@@ -618,7 +651,37 @@ export const updateProperty = async (req, res) => {
       });
     }
 
-    // Handle image uploads if new images are provided
+    const {
+      title,
+      description,
+      category,
+      propertyType,
+      status,
+      price,
+      sizeSqft,
+      referenceNumber,
+      bedrooms,
+      bathrooms,
+      amenities,
+      location,
+      phone,
+      whatsAppNumber,
+      contactEmail,
+      developerName,
+      developerSlug,
+      isFeatured,
+      isActive,
+      imageUrls,
+      removeDocumentPdf,
+    } = req.body;
+
+    let images =
+      parseExistingImages(req.body.existingImages) ||
+      property.images.map((img) => ({
+        url: img.url,
+        isCover: Boolean(img.isCover),
+      }));
+
     const imageFiles = getMulterImageFiles(req.files);
     if (imageFiles.length > 0) {
       try {
@@ -628,11 +691,11 @@ export const updateProperty = async (req, res) => {
         const uploadResults = await Promise.all(uploadPromises);
         const newImages = uploadResults
           .filter((result) => result?.secure_url)
-          .map((result, index) => ({
+          .map((result) => ({
             url: result.secure_url,
-            isCover: index === 0 && property.images.length === 0,
+            isCover: false,
           }));
-        req.body.images = [...property.images, ...newImages];
+        images = [...images, ...newImages];
       } catch (uploadError) {
         console.error("Image upload error:", uploadError);
         return res.status(500).json({
@@ -643,14 +706,36 @@ export const updateProperty = async (req, res) => {
       }
     }
 
-    if (req.body.removeDocumentPdf === "true") {
-      req.body.documentPdf = { url: "", fileName: "" };
+    const directImageUrls = parseImageUrls(imageUrls);
+    if (directImageUrls.length > 0) {
+      const urlImages = directImageUrls.map((url) => ({ url, isCover: false }));
+      images = [...images, ...urlImages];
+    }
+
+    if (images.length > 0 && !images.some((img) => img.isCover)) {
+      images[0].isCover = true;
+    }
+
+    let documentPdf = {
+      url: property.documentPdf?.url || "",
+      fileName: property.documentPdf?.fileName || "",
+      downloadUrl: property.documentPdf?.downloadUrl || "",
+      publicId: property.documentPdf?.publicId || "",
+    };
+
+    if (removeDocumentPdf === "true") {
+      documentPdf = {
+        url: "",
+        fileName: "",
+        downloadUrl: "",
+        publicId: "",
+      };
     }
 
     const pdfFile = getMulterPdfFile(req.files);
     if (pdfFile) {
       try {
-        req.body.documentPdf = await uploadPropertyDocumentPdf(pdfFile);
+        documentPdf = await uploadPropertyDocumentPdf(pdfFile);
       } catch (uploadError) {
         console.error("Property PDF upload error:", uploadError);
         return res.status(500).json({
@@ -663,42 +748,41 @@ export const updateProperty = async (req, res) => {
       }
     }
 
-    delete req.body.removeDocumentPdf;
-
-    // Handle direct image URLs append
-    if (req.body.imageUrls) {
-      const directImageUrls = parseImageUrls(req.body.imageUrls);
-      if (directImageUrls.length > 0) {
-        const urlImages = directImageUrls.map((url) => ({ url, isCover: false }));
-        const existingImages = req.body.images || property.images || [];
-        req.body.images = [...existingImages, ...urlImages];
-        if (req.body.images.length > 0 && !req.body.images.some((img) => img.isCover)) {
-          req.body.images[0].isCover = true;
-        }
-      }
-    }
-
-    // Handle price update
-    if (req.body.price && typeof req.body.price === "string") {
-      req.body.price = {
-        amount: parseFloat(req.body.price),
+    const nextCategory = category || property.category;
+    const updateData = {
+      title: title ?? property.title,
+      description: description ?? property.description,
+      category: nextCategory,
+      propertyType: propertyType ?? property.propertyType,
+      status: status || property.status || "available",
+      price: {
+        amount: parseNumberField(price, property.price?.amount ?? 0),
         currency: "AED",
-      };
-    }
-
-    if (req.body.amenities != null) {
-      req.body.amenities = parseAmenities(req.body.amenities);
-    }
-
-    // Keep developer fields aligned with off-plan category only
-    if (req.body.category && !isOffPlanCategory(req.body.category)) {
-      req.body.developerName = "";
-      req.body.developerSlug = "";
-    }
+      },
+      sizeSqft: parseNumberField(sizeSqft, property.sizeSqft ?? 0),
+      referenceNumber: referenceNumber || property.referenceNumber,
+      bedrooms: parseNumberField(bedrooms, property.bedrooms ?? 0),
+      bathrooms: parseNumberField(bathrooms, property.bathrooms ?? 0),
+      amenities:
+        amenities != null ? parseAmenities(amenities) : property.amenities,
+      images,
+      documentPdf,
+      location: location ?? property.location,
+      phone: phone ?? property.phone,
+      whatsAppNumber: whatsAppNumber ?? property.whatsAppNumber,
+      contactEmail: contactEmail ?? property.contactEmail ?? "",
+      developerName: isOffPlanCategory(nextCategory) ? developerName || "" : "",
+      developerSlug: isOffPlanCategory(nextCategory) ? developerSlug || "" : "",
+      isFeatured: parseBooleanField(isFeatured, Boolean(property.isFeatured)),
+      isActive: parseBooleanField(
+        isActive,
+        property.isActive !== false,
+      ),
+    };
 
     const updatedProperty = await Property.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      updateData,
       {
         new: true,
         runValidators: true,
