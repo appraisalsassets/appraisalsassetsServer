@@ -112,10 +112,12 @@ export const getServicesPublic = async (req, res) => {
 
 export const getServicesAdmin = async (req, res) => {
   try {
-    const services = await Service.find({}).sort({
-      displayOrder: 1,
-      createdAt: -1,
-    });
+    const services = await Service.find({})
+      .sort({
+        displayOrder: 1,
+        createdAt: -1,
+      })
+      .lean();
 
     return res.status(200).json({
       success: true,
@@ -124,6 +126,31 @@ export const getServicesAdmin = async (req, res) => {
     });
   } catch (error) {
     console.error("Get admin services error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+export const getServiceAdminById = async (req, res) => {
+  try {
+    const service = await Service.findById(req.params.id).lean();
+
+    if (!service) {
+      return res.status(404).json({
+        success: false,
+        message: "Service not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Service fetched successfully",
+      service,
+    });
+  } catch (error) {
+    console.error("Get admin service error:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",

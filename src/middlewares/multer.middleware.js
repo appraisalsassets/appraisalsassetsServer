@@ -63,3 +63,17 @@ export const propertyUpload = multer({
   { name: "images", maxCount: 20 },
   { name: "documentPdf", maxCount: 1 },
 ]);
+
+const serviceImageFilter = (req, file, cb) => {
+  if (file.fieldname === "heroImage" && file.mimetype.startsWith("image/")) {
+    return cb(null, true);
+  }
+  return cb(new Error("Service hero image must be an image file"), false);
+};
+
+/** Memory storage for service hero images (Vercel/serverless safe). */
+export const serviceUpload = multer({
+  storage: propertyStorage,
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: serviceImageFilter,
+}).single("heroImage");
