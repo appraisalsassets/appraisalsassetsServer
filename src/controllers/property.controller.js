@@ -11,11 +11,11 @@ import {
   verifyCloudinaryPdfAccessible,
 } from "../utils/cloudinary.js";
 import { v2 as cloudinary } from "cloudinary";
-
-const isOffPlanCategory = (value = "") => {
-  const key = String(value).trim().toLowerCase().replace(/[\s-]+/g, "_");
-  return key === "off_plan" || key === "offplan" || key.includes("off_plan");
-};
+import {
+  categoryFilterValues,
+  isOffPlanCategory,
+  normalizePropertyCategory,
+} from "../utils/propertyCategory.js";
 
 const parseImageUrls = (value) => {
   if (!value) return [];
@@ -398,11 +398,13 @@ export const createProperty = async (req, res) => {
       `LUX-${propertyType.substring(0, 2).toUpperCase()}-${Date.now().toString().slice(-6)}`;
 
     const parsedAmenities = parseAmenities(amenities);
+    const normalizedCategory =
+      normalizePropertyCategory(category) || "for_sale";
 
     const property = await Property.create({
       title,
       description,
-      category: category || "for_sale",
+      category: normalizedCategory,
       propertyType,
       status: status || "available",
       price: {
@@ -420,8 +422,12 @@ export const createProperty = async (req, res) => {
       phone,
       whatsAppNumber,
       contactEmail: contactEmail || "",
-      developerName: isOffPlanCategory(category) ? developerName || "" : "",
-      developerSlug: isOffPlanCategory(category) ? developerSlug || "" : "",
+      developerName: isOffPlanCategory(normalizedCategory)
+        ? developerName || ""
+        : "",
+      developerSlug: isOffPlanCategory(normalizedCategory)
+        ? developerSlug || ""
+        : "",
       isFeatured: isFeatured === "true" || isFeatured === true,
       isActive: isActive === "true" || isActive === true,
       createdBy: req.admin._id,
@@ -477,7 +483,7 @@ export const getProperties = async (req, res) => {
 
     // Build filter
     const filter = {};
-    if (category) filter.category = category;
+    if (category) filter.category = { $in: categoryFilterValues(category) };
     if (status) filter.status = status;
     if (location) filter.location = location;
     if (isFeatured) filter.isFeatured = isFeatured === "true";
@@ -748,7 +754,8 @@ export const updateProperty = async (req, res) => {
       }
     }
 
-    const nextCategory = category || property.category;
+    const nextCategory =
+      normalizePropertyCategory(category || property.category) || "for_sale";
     const updateData = {
       title: title ?? property.title,
       description: description ?? property.description,
