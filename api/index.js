@@ -1,44 +1,23 @@
 import dotenv from "dotenv";
+import { applyCorsHeaders } from "../src/config/cors.js";
 
 dotenv.config();
-
-const allowedOrigins = [
-  "https://appraisalsassets-client-g2nn-p31kdjqom.vercel.app",
-  "https://appraisalsassets-client-delta-v2-s14b9q8i4.vercel.app",
-  "https://appraisalsassets-client-delta.vercel.app",
-  "https://www.assetsappraisals.com",
-  "https://assetsappraisals.com",
-  "http://localhost:3000",
-  "http://localhost:3001",
-  ...(process.env.ALLOWED_ORIGINS || "")
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean),
-];
 
 let adminBootstrapped = false;
 
 export default async function handler(req, res) {
   const origin = req.headers.origin || "";
-  const cleanOrigin = origin.replace(/\/$/, "");
 
-  const allowedOrigin = allowedOrigins.includes(cleanOrigin)
-    ? cleanOrigin
-    : allowedOrigins[0];
+  if (!applyCorsHeaders(res, origin)) {
+    return res.status(403).json({
+      success: false,
+      message: "CORS blocked for this origin",
+    });
+  }
 
-  res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
-  res.setHeader(
-    "Access-Control-Allow-Methods",
-    "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-  );
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Content-Type,Authorization,Accept,Origin,X-Requested-With",
-  );
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Vary", "Origin");
-
-  if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
 
   if (!process.env.MONGO_URI) {
     return res.status(503).json({

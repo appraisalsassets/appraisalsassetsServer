@@ -20,32 +20,11 @@ import serviceRoutes from "./src/routes/service.routes.js";
 import settingsRoutes from "./src/routes/settings.routes.js";
 import connectDB from "./src/config/db.js";
 import mongoose from "mongoose";
+import { createExpressCorsOptions } from "./src/config/cors.js";
 
 const app = express();
 
-const defaultOrigins = [
-  "http://localhost:3000",
-  "http://127.0.0.1:3000",
-  "http://localhost:3001",
-  process.env.FRONTEND_URL,
-].filter(Boolean);
-
-const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim()).filter(Boolean)
-  : defaultOrigins;
-
-const corsOptions = {
-  origin(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-      return;
-    }
-    callback(null, false);
-  },
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-};
+const corsOptions = createExpressCorsOptions();
 
 // Middlewares
 app.use(cors(corsOptions));
